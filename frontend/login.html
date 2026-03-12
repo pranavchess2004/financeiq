@@ -230,7 +230,7 @@
   // ── Config ──
   const API = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
     ? 'http://localhost:3001'
-    : 'REPLACE_WITH_YOUR_BACKEND_URL'; // ← Update this after deploying backend
+    : 'financeiq-production-be75.up.railway.app'; // ← Update this after deploying backend
 
   // Redirect if already logged in
   if (localStorage.getItem('fiq_token')) {
