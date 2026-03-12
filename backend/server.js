@@ -30,25 +30,45 @@ async function requireAuth(req, res, next) {
    AUTH ROUTES
 ══════════════════════════════════════════ */
 app.post('/api/auth/signup', async (req, res) => {
-  const { email, password, name } = req.body;
-  const { data, error } = await supabase.auth.signUp({
-    email, password,
-    options: { data: { name } }
-  });
-  if (error) return res.status(400).json({ error: error.message });
-  res.json({ user: data.user, session: data.session });
+  try {
+    const { email, password, name } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+    const { data, error } = await supabase.auth.signUp({
+      email, password,
+      options: { data: { name } }
+    });
+    if (error) return res.status(400).json({ error: error.message });
+    res.json({ user: data.user, session: data.session });
+  } catch (err) {
+    console.error('Signup error:', err);
+    res.status(500).json({ error: 'Signup failed: ' + err.message });
+  }
 });
 
 app.post('/api/auth/login', async (req, res) => {
-  const { email, password } = req.body;
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) return res.status(400).json({ error: error.message });
-  res.json({ user: data.user, session: data.session });
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) return res.status(400).json({ error: error.message });
+    res.json({ user: data.user, session: data.session });
+  } catch (err) {
+    console.error('Login error:', err);
+    res.status(500).json({ error: 'Login failed: ' + err.message });
+  }
 });
 
 app.post('/api/auth/logout', requireAuth, async (req, res) => {
-  const token = req.headers.authorization?.replace('Bearer ', '');
-  await supabase.auth.admin.signOut(token);
+  try {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    await supabase.auth.admin.signOut(token);
+  } catch (err) {
+    console.error('Logout error:', err);
+  }
   res.json({ success: true });
 });
 
@@ -228,6 +248,14 @@ app.get('/api/debug', async (req, res) => {
   }
 
   res.json(checks);
+});
+
+/* ══════════════════════════════════════════
+   GLOBAL ERROR HANDLER — always returns JSON
+══════════════════════════════════════════ */
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({ error: err.message || 'Internal server error' });
 });
 
 const PORT = process.env.PORT || 3001;
