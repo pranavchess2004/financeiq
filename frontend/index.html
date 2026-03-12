@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FinanceIQ – Smart Personal Finance Tracker</title>
+  <meta name="description" content="Track income and expenses, manage budgets, visualize spending patterns, and gain financial insights with FinanceIQ." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css" />
+  <link rel="stylesheet" href="index.css" />
+</head>
+<body>
+
+  <!-- ═══════════════════ SIDEBAR ═══════════════════ -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="logo">
+        <span class="logo-icon">💰</span>
+        <span class="logo-text">Finance<span class="logo-accent">IQ</span></span>
+      </div>
+      <button class="sidebar-close" id="sidebarClose" aria-label="Close menu">✕</button>
+    </div>
+
+    <nav class="sidebar-nav">
+      <a class="nav-item active" data-page="dashboard" href="#dashboard" id="nav-dashboard">
+        <span class="nav-icon">🏠</span><span class="nav-label">Dashboard</span>
+      </a>
+      <a class="nav-item" data-page="transactions" href="#transactions" id="nav-transactions">
+        <span class="nav-icon">💳</span><span class="nav-label">Transactions</span>
+      </a>
+      <a class="nav-item" data-page="budgets" href="#budgets" id="nav-budgets">
+        <span class="nav-icon">🎯</span><span class="nav-label">Budgets</span>
+      </a>
+      <a class="nav-item" data-page="categories" href="#categories" id="nav-categories">
+        <span class="nav-icon">🗂️</span><span class="nav-label">Categories</span>
+      </a>
+      <a class="nav-item" data-page="reports" href="#reports" id="nav-reports">
+        <span class="nav-icon">📊</span><span class="nav-label">Reports</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="sidebar-user">
+        <div class="user-avatar">👤</div>
+        <div class="user-info">
+          <div class="user-name">My Finances</div>
+          <div class="user-sub">Personal Account</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ═══════════════════ OVERLAY ═══════════════════ -->
+  <div class="overlay" id="overlay"></div>
+
+  <!-- ═══════════════════ MAIN CONTENT ═══════════════════ -->
+  <main class="main-content">
+
+    <!-- Topbar -->
+    <header class="topbar">
+      <button class="hamburger" id="hamburger" aria-label="Open menu">
+        <span></span><span></span><span></span>
+      </button>
+      <h1 class="topbar-title" id="pageTitle">Dashboard</h1>
+      <div class="topbar-actions">
+        <button class="btn btn-primary" id="addTxnBtnTopbar">+ Add Transaction</button>
+      </div>
+    </header>
+
+    <!-- ─── PAGE: DASHBOARD ─── -->
+    <section class="page active" id="page-dashboard">
+      <div class="page-header">
+        <div>
+          <h2 class="page-heading">Overview</h2>
+          <p class="page-sub">Your financial snapshot</p>
+        </div>
+        <div class="period-selector">
+          <select id="dashPeriod">
+            <option value="this-month">This Month</option>
+            <option value="last-month">Last Month</option>
+            <option value="last-3">Last 3 Months</option>
+            <option value="last-6">Last 6 Months</option>
+            <option value="this-year">This Year</option>
+            <option value="all">All Time</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Summary Cards -->
+      <div class="cards-grid" id="summaryCards">
+        <div class="card card-balance">
+          <div class="card-label">Total Balance</div>
+          <div class="card-value" id="cardBalance">₹0.00</div>
+          <div class="card-icon">🏦</div>
+        </div>
+        <div class="card card-income">
+          <div class="card-label">Total Income</div>
+          <div class="card-value" id="cardIncome">₹0.00</div>
+          <div class="card-icon">📈</div>
+        </div>
+        <div class="card card-expense">
+          <div class="card-label">Total Expenses</div>
+          <div class="card-value" id="cardExpense">₹0.00</div>
+          <div class="card-icon">📉</div>
+        </div>
+        <div class="card card-savings">
+          <div class="card-label">Net Savings</div>
+          <div class="card-value" id="cardSavings">₹0.00</div>
+          <div class="card-icon">💎</div>
+        </div>
+      </div>
+
+      <!-- Charts Row -->
+      <div class="charts-row">
+        <div class="chart-card">
+          <div class="chart-card-header">
+            <span class="chart-title">Spending by Category</span>
+          </div>
+          <div class="chart-wrapper donut-wrapper">
+            <canvas id="donutChart"></canvas>
+            <div class="donut-legend" id="donutLegend"></div>
+          </div>
+        </div>
+        <div class="chart-card chart-card-wide">
+          <div class="chart-card-header">
+            <span class="chart-title">Income vs Expenses</span>
+            <span class="chart-sub" id="trendSubtitle"></span>
+          </div>
+          <div class="chart-wrapper">
+            <canvas id="trendChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recent Transactions -->
+      <div class="section-card">
+        <div class="section-header">
+          <span class="section-title">Recent Transactions</span>
+          <button class="btn-link" data-page="transactions">View All →</button>
+        </div>
+        <div id="recentTxnList" class="txn-list"></div>
+      </div>
+    </section>
+
+    <!-- ─── PAGE: TRANSACTIONS ─── -->
+    <section class="page" id="page-transactions">
+      <div class="page-header">
+        <div>
+          <h2 class="page-heading">Transactions</h2>
+          <p class="page-sub">All income & expense records</p>
+        </div>
+        <button class="btn btn-primary" id="addTxnBtn">+ Add Transaction</button>
+      </div>
+
+      <!-- Filters -->
+      <div class="filter-bar">
+        <input type="text" id="txnSearch" placeholder="🔍 Search transactions…" class="search-input" />
+        <select id="txnFilterType">
+          <option value="">All Types</option>
+          <option value="income">Income</option>
+          <option value="expense">Expense</option>
+        </select>
+        <select id="txnFilterCat">
+          <option value="">All Categories</option>
+        </select>
+        <input type="text" id="txnFilterDate" placeholder="📅 Date range" class="date-range-input" readonly />
+        <button class="btn btn-ghost" id="txnClearFilter">Clear</button>
+      </div>
+
+      <div class="section-card">
+        <div id="txnTableWrapper">
+          <table class="txn-table" id="txnTable">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Description</th>
+                <th>Category</th>
+                <th>Type</th>
+                <th class="text-right">Amount</th>
+                <th class="text-center">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="txnTableBody"></tbody>
+          </table>
+        </div>
+        <div class="pagination" id="txnPagination"></div>
+      </div>
+    </section>
+
+    <!-- ─── PAGE: BUDGETS ─── -->
+    <section class="page" id="page-budgets">
+      <div class="page-header">
+        <div>
+          <h2 class="page-heading">Budgets</h2>
+          <p class="page-sub">Monthly spending limits per category</p>
+        </div>
+        <button class="btn btn-primary" id="addBudgetBtn">+ Set Budget</button>
+      </div>
+      <div class="budget-grid" id="budgetGrid"></div>
+    </section>
+
+    <!-- ─── PAGE: CATEGORIES ─── -->
+    <section class="page" id="page-categories">
+      <div class="page-header">
+        <div>
+          <h2 class="page-heading">Categories</h2>
+          <p class="page-sub">Manage your spending & income categories</p>
+        </div>
+        <button class="btn btn-primary" id="addCatBtn">+ Add Category</button>
+      </div>
+      <div class="cat-grid" id="catGrid"></div>
+    </section>
+
+    <!-- ─── PAGE: REPORTS ─── -->
+    <section class="page" id="page-reports">
+      <div class="page-header">
+        <div>
+          <h2 class="page-heading">Reports</h2>
+          <p class="page-sub">Detailed financial summaries & export</p>
+        </div>
+        <div class="topbar-actions">
+          <select id="reportPeriod">
+            <option value="this-month">This Month</option>
+            <option value="last-month">Last Month</option>
+            <option value="last-3">Last 3 Months</option>
+            <option value="last-6">Last 6 Months</option>
+            <option value="this-year">This Year</option>
+            <option value="all">All Time</option>
+          </select>
+          <button class="btn btn-primary" id="exportCsvBtn">⬇ Export CSV</button>
+        </div>
+      </div>
+
+      <!-- Report Summary Cards -->
+      <div class="cards-grid">
+        <div class="card card-income">
+          <div class="card-label">Total Income</div>
+          <div class="card-value" id="repIncome">₹0.00</div>
+          <div class="card-icon">📈</div>
+        </div>
+        <div class="card card-expense">
+          <div class="card-label">Total Expenses</div>
+          <div class="card-value" id="repExpense">₹0.00</div>
+          <div class="card-icon">📉</div>
+        </div>
+        <div class="card card-savings">
+          <div class="card-label">Net Savings</div>
+          <div class="card-value" id="repSavings">₹0.00</div>
+          <div class="card-icon">💎</div>
+        </div>
+      </div>
+
+      <!-- Report Chart -->
+      <div class="chart-card">
+        <div class="chart-card-header">
+          <span class="chart-title">Monthly Breakdown</span>
+        </div>
+        <div class="chart-wrapper">
+          <canvas id="reportChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Category Breakdown Table -->
+      <div class="section-card">
+        <div class="section-header">
+          <span class="section-title">Category Breakdown</span>
+        </div>
+        <table class="txn-table" id="reportTable">
+          <thead>
+            <tr>
+              <th>Category</th>
+              <th class="text-right">Income</th>
+              <th class="text-right">Expenses</th>
+              <th class="text-right">Net</th>
+              <th class="text-right">% of Total Spend</th>
+            </tr>
+          </thead>
+          <tbody id="reportTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ═══════════════════ MODALS ═══════════════════ -->
+
+  <!-- Transaction Modal -->
+  <div class="modal-backdrop" id="txnModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title" id="txnModalTitle">Add Transaction</h3>
+        <button class="modal-close" id="txnModalClose">✕</button>
+      </div>
+      <form id="txnForm" novalidate>
+        <input type="hidden" id="txnId" />
+        <div class="form-row">
+          <div class="form-group">
+            <label for="txnType">Type</label>
+            <select id="txnType" required>
+              <option value="expense">Expense</option>
+              <option value="income">Income</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="txnAmount">Amount (₹)</label>
+            <input type="number" id="txnAmount" min="0.01" step="0.01" placeholder="0.00" required />
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="txnCategory">Category</label>
+            <select id="txnCategory" required></select>
+          </div>
+          <div class="form-group">
+            <label for="txnDate">Date</label>
+            <input type="text" id="txnDate" placeholder="Select date" required readonly />
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="txnDesc">Description</label>
+          <input type="text" id="txnDesc" placeholder="e.g. Monthly rent, Grocery run…" required />
+        </div>
+        <div class="form-group">
+          <label for="txnNotes">Notes (optional)</label>
+          <textarea id="txnNotes" rows="2" placeholder="Additional details…"></textarea>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-ghost" id="txnCancelBtn">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="txnSaveBtn">Save Transaction</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Category Modal -->
+  <div class="modal-backdrop" id="catModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title" id="catModalTitle">Add Category</h3>
+        <button class="modal-close" id="catModalClose">✕</button>
+      </div>
+      <form id="catForm" novalidate>
+        <input type="hidden" id="catId" />
+        <div class="form-group">
+          <label for="catName">Category Name</label>
+          <input type="text" id="catName" placeholder="e.g. Food, Transport…" required />
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="catIcon">Icon (emoji)</label>
+            <input type="text" id="catIcon" placeholder="🍔" maxlength="4" />
+          </div>
+          <div class="form-group">
+            <label for="catColor">Color</label>
+            <input type="color" id="catColor" value="#6c63ff" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="catType">Type</label>
+          <select id="catType">
+            <option value="expense">Expense</option>
+            <option value="income">Income</option>
+            <option value="both">Both</option>
+          </select>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-ghost" id="catCancelBtn">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Category</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Budget Modal -->
+  <div class="modal-backdrop" id="budgetModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title" id="budgetModalTitle">Set Budget</h3>
+        <button class="modal-close" id="budgetModalClose">✕</button>
+      </div>
+      <form id="budgetForm" novalidate>
+        <input type="hidden" id="budgetId" />
+        <div class="form-group">
+          <label for="budgetCat">Category</label>
+          <select id="budgetCat" required></select>
+        </div>
+        <div class="form-group">
+          <label for="budgetAmount">Monthly Limit (₹)</label>
+          <input type="number" id="budgetAmount" min="1" step="0.01" placeholder="0.00" required />
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-ghost" id="budgetCancelBtn">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Budget</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Confirm Delete Modal -->
+  <div class="modal-backdrop" id="confirmModal">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h3 class="modal-title">Confirm Delete</h3>
+        <button class="modal-close" id="confirmModalClose">✕</button>
+      </div>
+      <p class="confirm-text" id="confirmText">Are you sure you want to delete this item? This action cannot be undone.</p>
+      <div class="form-actions">
+        <button class="btn btn-ghost" id="confirmCancel">Cancel</button>
+        <button class="btn btn-danger" id="confirmOk">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════ TOAST ═══════════════════ -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- ═══════════════════ SCRIPTS ═══════════════════ -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+  <script src="app.js"></script>
+</body>
+</html>
