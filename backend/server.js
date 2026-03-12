@@ -197,9 +197,38 @@ app.delete('/api/budgets/:id', requireAuth, async (req, res) => {
 });
 
 /* ══════════════════════════════════════════
-   HEALTH CHECK
+   HEALTH CHECK + SUPABASE DIAGNOSTIC
 ══════════════════════════════════════════ */
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+
+// Visit /api/debug in browser to confirm Supabase is connected correctly
+app.get('/api/debug', async (req, res) => {
+  const checks = {
+    supabase_url: process.env.SUPABASE_URL ? '✅ set' : '❌ missing',
+    supabase_key: process.env.SUPABASE_SERVICE_KEY ? '✅ set' : '❌ missing',
+    supabase_key_length: process.env.SUPABASE_SERVICE_KEY?.length || 0,
+    supabase_connection: null,
+    auth_config: null,
+  };
+
+  // Test DB connection
+  try {
+    const { error } = await supabase.from('categories').select('id').limit(1);
+    checks.supabase_connection = error ? `❌ ${error.message}` : '✅ connected';
+  } catch (e) {
+    checks.supabase_connection = `❌ ${e.message}`;
+  }
+
+  // Test auth config
+  try {
+    const { data, error } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1 });
+    checks.auth_config = error ? `❌ ${error.message}` : `✅ auth working (${data.users.length} user(s) found)`;
+  } catch (e) {
+    checks.auth_config = `❌ ${e.message}`;
+  }
+
+  res.json(checks);
+});
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`FinanceIQ API running on port ${PORT}`));
