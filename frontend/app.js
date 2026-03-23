@@ -49,6 +49,9 @@ const DEFAULT_CATS = [
   { name: 'Entertainment', icon: '🎬', color: '#fbbf24', type: 'expense', fixed: false },
   { name: 'Education',     icon: '📚', color: '#38bdf8', type: 'expense', fixed: false },
   { name: 'Savings',       icon: '🏦', color: '#4ade80', type: 'both',    fixed: false },
+  { name: 'Mutual Funds',  icon: '📈', color: '#818cf8', type: 'savings', fixed: false },
+  { name: 'Fixed Deposit', icon: '🏛️', color: '#38bdf8', type: 'savings', fixed: false },
+  { name: 'Stocks',        icon: '📉', color: '#f59e0b', type: 'savings', fixed: false },
 ];
 
 /* ═══════════════════════════════════════════════════════
@@ -201,13 +204,15 @@ function renderDashboard() {
 
   const income  = txns.filter(t => t.type==='income').reduce((s,t)=>s+Number(t.amount), 0);
   const expense = txns.filter(t => t.type==='expense').reduce((s,t)=>s+Number(t.amount), 0);
-  const balance = income - expense;
-  const savings = balance;
+  const invest  = txns.filter(t => t.type==='savings').reduce((s,t)=>s+Number(t.amount), 0);
+  const balance = income - expense - invest;
+  const netSave = balance;
 
   document.getElementById('cardBalance').textContent = fmt(balance);
   document.getElementById('cardIncome').textContent  = fmt(income);
   document.getElementById('cardExpense').textContent = fmt(expense);
-  document.getElementById('cardSavings').textContent = fmt(savings);
+  document.getElementById('cardSavings').textContent = fmt(netSave);
+  document.getElementById('cardInvest').textContent  = fmt(invest);
 
   const balEl = document.querySelector('.card-balance .card-value');
   balEl.style.color = balance < 0 ? 'var(--expense-color)' : 'var(--balance-color)';
@@ -218,7 +223,7 @@ function renderDashboard() {
 }
 
 function renderDonutChart(txns) {
-  const expenses = txns.filter(t => t.type==='expense');
+  const expenses = txns.filter(t => t.type==='expense' || t.type==='savings');
   const byCat = {};
   expenses.forEach(t => { byCat[t.category] = (byCat[t.category]||0) + Number(t.amount); });
   const catIds = Object.keys(byCat);
@@ -314,7 +319,7 @@ function renderRecentTxns(txns) {
         <div class="txn-desc">${esc(t.description)}</div>
         <div class="txn-meta">${cat.name} · ${new Date(t.date).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})}</div>
       </div>
-      <div class="txn-amount ${t.type}">${t.type==='income'?'+':'-'}${fmt(t.amount)}</div>
+      <div class="txn-amount ${t.type==='savings'?'savings':t.type}">${t.type==='income'?'+':t.type==='savings'?'💰':'-'}${fmt(t.amount)}</div>
     </div>`;
   }).join('');
 }
@@ -370,7 +375,7 @@ function renderTransactions() {
           ${t.notes ? `<div style="font-size:0.76rem;color:var(--text-secondary);margin-top:2px">${esc(t.notes)}</div>` : ''}
         </td>
         <td><span class="cat-chip" style="background:${cat.color}22;color:${cat.color}">${cat.icon} ${cat.name}</span></td>
-        <td><span class="type-badge ${t.type}">${t.type}</span></td>
+        <td><span class="type-badge ${t.type}">${t.type === 'savings' ? '💰 savings' : t.type}</span></td>
         <td class="text-right" style="color:${t.type==='income'?'var(--income-color)':'var(--expense-color)'}; font-weight:700">
           ${t.type==='income'?'+':'-'}${fmt(t.amount)}
         </td>
@@ -441,7 +446,10 @@ function openEditTxn(id) {
 function populateTxnCatSelect(type) {
   const sel = document.getElementById('txnCategory');
   const curType = type || document.getElementById('txnType').value;
-  const cats = STATE.categories.filter(c => c.type === curType || c.type === 'both');
+  const cats = STATE.categories.filter(c => {
+    if (curType === 'savings') return c.type === 'savings' || c.type === 'both';
+    return c.type === curType || c.type === 'both';
+  });
   sel.innerHTML = cats.map(c => `<option value="${c.id}">${c.icon} ${c.name}</option>`).join('');
 }
 
