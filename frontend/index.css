@@ -1025,3 +1025,19 @@ span.flatpickr-weekday { color: var(--text-secondary) !important; }
   .topbar-actions .btn { padding: 7px 12px; font-size: 0.8rem; }
   .btn { padding: 8px 14px; }
 }
+
+/* ── Savings / Investment card ─────────────────────────── */
+.card-invest {
+  background: linear-gradient(135deg, rgba(129,140,248,0.15) 0%, rgba(99,102,241,0.08) 100%);
+  border: 1px solid rgba(129,140,248,0.2);
+}
+.card-invest .card-value { color: #818cf8; }
+
+/* ── Savings type badge ────────────────────────────────── */
+.type-badge.savings {
+  background: rgba(129,140,248,0.15);
+  color: #818cf8;
+}
+
+/* ── Savings amount in txn list ───────────────────────── */
+.txn-amount.savings { color: #818cf8; }
