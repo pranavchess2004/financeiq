@@ -7,7 +7,7 @@
 /* ─── API Base URL ────────────────────────────────────── */
 const API_BASE = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
   ? 'http://localhost:3001'
-  : 'https://financeiq-production-be75.up.railway.app'; // ← Update after deploying backend
+  : 'https://financeiq-gules.vercel.app/'; // ← Update after deploying backend
 
 /* ─── Auth helpers ────────────────────────────────────── */
 function getToken() { return localStorage.getItem('fiq_token'); }
