@@ -1,9 +1,12 @@
 const express = require('express');
 const cors = require('cors');
-const { createClient } = require('@supabase/supabase-js');
+const { Pool } = require('pg');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
 const app = express();
+
 const allowedOrigins = process.env.FRONTEND_URL
   ? process.env.FRONTEND_URL.split(',').map(o => o.trim())
   : [];
@@ -23,10 +26,13 @@ app.use(cors({
 app.options('*', cors());
 app.use(express.json());
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY
-);
+// ── Database (Neon / any Postgres) ──────────────────────────────────────────
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }, // Required for Neon
+});
+
+const JWT_SECRET = process.env.JWT_SECRET || 'change-me-in-production';
 
 /* ══════════════════════════════════════════
    AUTH MIDDLEWARE
@@ -35,11 +41,16 @@ async function requireAuth(req, res, next) {
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (!token) return res.status(401).json({ error: 'No token provided' });
 
-  const { data: { user }, error } = await supabase.auth.getUser(token);
-  if (error || !user) return res.status(401).json({ error: 'Invalid token' });
-
-  req.user = user;
-  next();
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    // Verify user still exists in DB
+    const { rows } = await pool.query('SELECT id, email, name FROM users WHERE id = $1', [decoded.userId]);
+    if (!rows[0]) return res.status(401).json({ error: 'User not found' });
+    req.user = rows[0];
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
 }
 
 /* ══════════════════════════════════════════
@@ -51,12 +62,27 @@ app.post('/api/auth/signup', async (req, res) => {
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
     }
-    const { data, error } = await supabase.auth.signUp({
-      email, password,
-      options: { data: { name } }
+
+    // Check if email already exists
+    const existing = await pool.query('SELECT id FROM users WHERE email = $1', [email.toLowerCase()]);
+    if (existing.rows.length > 0) {
+      return res.status(400).json({ error: 'Email already registered' });
+    }
+
+    const password_hash = await bcrypt.hash(password, 12);
+    const { rows } = await pool.query(
+      'INSERT INTO users (email, password_hash, name) VALUES ($1, $2, $3) RETURNING id, email, name, created_at',
+      [email.toLowerCase(), password_hash, name || null]
+    );
+    const user = rows[0];
+
+    const access_token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
+
+    // Return same shape as Supabase so frontend works unchanged
+    res.json({
+      user: { id: user.id, email: user.email, user_metadata: { name: user.name } },
+      session: { access_token }
     });
-    if (error) return res.status(400).json({ error: error.message });
-    res.json({ user: data.user, session: data.session });
   } catch (err) {
     console.error('Signup error:', err);
     res.status(500).json({ error: 'Signup failed: ' + err.message });
@@ -69,22 +95,33 @@ app.post('/api/auth/login', async (req, res) => {
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
     }
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) return res.status(400).json({ error: error.message });
-    res.json({ user: data.user, session: data.session });
+
+    const { rows } = await pool.query(
+      'SELECT id, email, name, password_hash FROM users WHERE email = $1',
+      [email.toLowerCase()]
+    );
+    const user = rows[0];
+
+    if (!user || !(await bcrypt.compare(password, user.password_hash))) {
+      return res.status(400).json({ error: 'Invalid email or password' });
+    }
+
+    const access_token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
+
+    // Return same shape as Supabase so frontend works unchanged
+    res.json({
+      user: { id: user.id, email: user.email, user_metadata: { name: user.name } },
+      session: { access_token }
+    });
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).json({ error: 'Login failed: ' + err.message });
   }
 });
 
-app.post('/api/auth/logout', requireAuth, async (req, res) => {
-  try {
-    const token = req.headers.authorization?.replace('Bearer ', '');
-    await supabase.auth.admin.signOut(token);
-  } catch (err) {
-    console.error('Logout error:', err);
-  }
+app.post('/api/auth/logout', requireAuth, (req, res) => {
+  // JWT is stateless — client just discards the token.
+  // For token invalidation at scale, use a Redis blocklist. For personal apps, this is fine.
   res.json({ success: true });
 });
 
@@ -96,189 +133,197 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
    TRANSACTIONS
 ══════════════════════════════════════════ */
 app.get('/api/transactions', requireAuth, async (req, res) => {
-  const { data, error } = await supabase
-    .from('transactions')
-    .select('*')
-    .eq('user_id', req.user.id)
-    .order('date', { ascending: false });
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM transactions WHERE user_id = $1 ORDER BY date DESC',
+      [req.user.id]
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.post('/api/transactions', requireAuth, async (req, res) => {
-  const { type, amount, category, date, description, notes } = req.body;
-  const { data, error } = await supabase
-    .from('transactions')
-    .insert({ user_id: req.user.id, type, amount, category, date, description, notes })
-    .select()
-    .single();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  try {
+    const { type, amount, category, date, description, notes } = req.body;
+    const { rows } = await pool.query(
+      `INSERT INTO transactions (user_id, type, amount, category, date, description, notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [req.user.id, type, amount, category, date, description, notes]
+    );
+    res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.put('/api/transactions/:id', requireAuth, async (req, res) => {
-  const { type, amount, category, date, description, notes } = req.body;
-  const { data, error } = await supabase
-    .from('transactions')
-    .update({ type, amount, category, date, description, notes })
-    .eq('id', req.params.id)
-    .eq('user_id', req.user.id)
-    .select()
-    .single();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  try {
+    const { type, amount, category, date, description, notes } = req.body;
+    const { rows } = await pool.query(
+      `UPDATE transactions SET type=$1, amount=$2, category=$3, date=$4, description=$5, notes=$6
+       WHERE id=$7 AND user_id=$8 RETURNING *`,
+      [type, amount, category, date, description, notes, req.params.id, req.user.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Transaction not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.delete('/api/transactions/:id', requireAuth, async (req, res) => {
-  const { error } = await supabase
-    .from('transactions')
-    .delete()
-    .eq('id', req.params.id)
-    .eq('user_id', req.user.id);
-  if (error) return res.status(500).json({ error: error.message });
-  res.json({ success: true });
+  try {
+    await pool.query(
+      'DELETE FROM transactions WHERE id=$1 AND user_id=$2',
+      [req.params.id, req.user.id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 /* ══════════════════════════════════════════
    CATEGORIES
 ══════════════════════════════════════════ */
 app.get('/api/categories', requireAuth, async (req, res) => {
-  const { data, error } = await supabase
-    .from('categories')
-    .select('*')
-    .eq('user_id', req.user.id)
-    .order('created_at');
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM categories WHERE user_id=$1 ORDER BY created_at',
+      [req.user.id]
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.post('/api/categories', requireAuth, async (req, res) => {
-  const { name, icon, color, type, fixed } = req.body;
-  const { data, error } = await supabase
-    .from('categories')
-    .insert({ user_id: req.user.id, name, icon, color, type, fixed: fixed || false })
-    .select()
-    .single();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  try {
+    const { name, icon, color, type, fixed } = req.body;
+    const { rows } = await pool.query(
+      `INSERT INTO categories (user_id, name, icon, color, type, fixed)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [req.user.id, name, icon, color, type, fixed || false]
+    );
+    res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.put('/api/categories/:id', requireAuth, async (req, res) => {
-  const { name, icon, color, type } = req.body;
-  const { data, error } = await supabase
-    .from('categories')
-    .update({ name, icon, color, type })
-    .eq('id', req.params.id)
-    .eq('user_id', req.user.id)
-    .select()
-    .single();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  try {
+    const { name, icon, color, type } = req.body;
+    const { rows } = await pool.query(
+      `UPDATE categories SET name=$1, icon=$2, color=$3, type=$4
+       WHERE id=$5 AND user_id=$6 RETURNING *`,
+      [name, icon, color, type, req.params.id, req.user.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Category not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.delete('/api/categories/:id', requireAuth, async (req, res) => {
-  const { error } = await supabase
-    .from('categories')
-    .delete()
-    .eq('id', req.params.id)
-    .eq('user_id', req.user.id);
-  if (error) return res.status(500).json({ error: error.message });
-  res.json({ success: true });
+  try {
+    await pool.query(
+      'DELETE FROM categories WHERE id=$1 AND user_id=$2',
+      [req.params.id, req.user.id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 /* ══════════════════════════════════════════
    BUDGETS
 ══════════════════════════════════════════ */
 app.get('/api/budgets', requireAuth, async (req, res) => {
-  const { data, error } = await supabase
-    .from('budgets')
-    .select('*')
-    .eq('user_id', req.user.id);
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM budgets WHERE user_id=$1',
+      [req.user.id]
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.post('/api/budgets', requireAuth, async (req, res) => {
-  const { category_id, amount } = req.body;
-  const { data, error } = await supabase
-    .from('budgets')
-    .insert({ user_id: req.user.id, category_id, amount })
-    .select()
-    .single();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  try {
+    const { category_id, amount } = req.body;
+    const { rows } = await pool.query(
+      `INSERT INTO budgets (user_id, category_id, amount) VALUES ($1,$2,$3) RETURNING *`,
+      [req.user.id, category_id, amount]
+    );
+    res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.put('/api/budgets/:id', requireAuth, async (req, res) => {
-  const { category_id, amount } = req.body;
-  const { data, error } = await supabase
-    .from('budgets')
-    .update({ category_id, amount })
-    .eq('id', req.params.id)
-    .eq('user_id', req.user.id)
-    .select()
-    .single();
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  try {
+    const { category_id, amount } = req.body;
+    const { rows } = await pool.query(
+      `UPDATE budgets SET category_id=$1, amount=$2 WHERE id=$3 AND user_id=$4 RETURNING *`,
+      [category_id, amount, req.params.id, req.user.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Budget not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.delete('/api/budgets/:id', requireAuth, async (req, res) => {
-  const { error } = await supabase
-    .from('budgets')
-    .delete()
-    .eq('id', req.params.id)
-    .eq('user_id', req.user.id);
-  if (error) return res.status(500).json({ error: error.message });
-  res.json({ success: true });
+  try {
+    await pool.query(
+      'DELETE FROM budgets WHERE id=$1 AND user_id=$2',
+      [req.params.id, req.user.id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 /* ══════════════════════════════════════════
-   HEALTH CHECK + SUPABASE DIAGNOSTIC
+   HEALTH CHECK + DIAGNOSTIC
 ══════════════════════════════════════════ */
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
-// Visit /api/debug in browser to confirm Supabase is connected correctly
 app.get('/api/debug', async (req, res) => {
   const checks = {
-    supabase_url: process.env.SUPABASE_URL ? '✅ set' : '❌ missing',
-    supabase_key: process.env.SUPABASE_SERVICE_KEY ? '✅ set' : '❌ missing',
-    supabase_key_length: process.env.SUPABASE_SERVICE_KEY?.length || 0,
-    supabase_connection: null,
-    auth_config: null,
+    database_url: process.env.DATABASE_URL ? '✅ set' : '❌ missing',
+    jwt_secret: process.env.JWT_SECRET ? '✅ set' : '⚠️ using default (change in prod)',
+    db_connection: null,
   };
-
-  // Test DB connection
   try {
-    const { error } = await supabase.from('categories').select('id').limit(1);
-    checks.supabase_connection = error ? `❌ ${error.message}` : '✅ connected';
+    await pool.query('SELECT 1');
+    checks.db_connection = '✅ connected to Neon';
   } catch (e) {
-    checks.supabase_connection = `❌ ${e.message}`;
+    checks.db_connection = `❌ ${e.message}`;
   }
-
-  // Test auth config
-  try {
-    const { data, error } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1 });
-    checks.auth_config = error ? `❌ ${error.message}` : `✅ auth working (${data.users.length} user(s) found)`;
-  } catch (e) {
-    checks.auth_config = `❌ ${e.message}`;
-  }
-
   res.json(checks);
 });
 
 /* ══════════════════════════════════════════
-   GLOBAL ERROR HANDLER — always returns JSON
+   GLOBAL ERROR HANDLER
 ══════════════════════════════════════════ */
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
   res.status(500).json({ error: err.message || 'Internal server error' });
 });
 
-// For local development
-if (process.env.NODE_ENV !== 'production') {
-  const PORT = process.env.PORT || 3001;
-  app.listen(PORT, () => console.log(`FinanceIQ API running on port ${PORT}`));
-}
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => console.log(`FinanceIQ API running on port ${PORT}`));
 
-// Vercel serverless export
 module.exports = app;
